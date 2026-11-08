@@ -1,0 +1,241 @@
+% TRCN architecture paper (companion to the STAR routing paper).
+% Compile:  latexmk -xelatex main.tex      (biber is run automatically)
+% Switch "jou" to "man" for an APA 7 manuscript-format submission.
+\documentclass[jou,a4paper,11pt,floatsintext]{apa7}
+\usepackage[american]{babel}
+\usepackage{csquotes}
+\usepackage[style=apa,backend=biber]{biblatex}
+\addbibresource{../references.bib}
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\setCJKmainfont[AutoFakeSlant=0.15]{Heiti TC}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx,multirow,makecell}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
+\hypersetup{hidelinks}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\input{../star/numbers.tex}
+
+\title{TRCN: Architecture, Protocol Design, and Threat Model for Infrastructure-Independent Emergency Messaging in Taiwan}
+\shorttitle{TRCN Architecture and Threat Model}
+\leftheader{TRCN Architecture and Threat Model}
+\authorsnames{Pinyen Cheng}
+\authorsaffiliations{{Taoyuan, Taiwan}}
+
+\abstract{When an earthquake or typhoon removes grid power and backhaul from cellular sites, citizens, shelters, and responders lose the asynchronous text channel they rely on most. On 3 April 2024, a magnitude 7.2 earthquake off Hualien disrupted 172 base stations in Taiwan, largely through power and transmission failures. This paper presents the Taiwan Resilient Communication Network (TRCN), an architecture for short, end-to-end encrypted, store-carry-forward messaging that operates whenever at least one spatial or temporal path exists, without a central identity lookup, routing oracle, or operator short-message service center. We state the system invariant and its explicit non-guarantees; specify a layered design with a 52-byte immutable message envelope (TME), a fragmentation and custody transport (TDF), privacy-preserving pairwise mailboxes, optional offline-verifiable credentials, and role-scoped official notices; and give a threat register of fifteen threats with mitigations and their implementation status. The routing layer uses STAR, a learned, stability-aware next-hop policy evaluated in a companion paper; we summarize its synthetic results and replicate the original seven-node benchmark. All results are simulation-only and synthetic. We close with safety constraints, a staged roadmap at a current hardware budget of NT\$0, and the evidence still required before any field deployment.}
+\keywords{disaster communication, delay-tolerant networking, store-and-forward, LoRa, threat modeling, Taiwan, emergency messaging}
+\authornote{
+  This is an independent research design with no affiliation with, or endorsement by, any Taiwanese government agency. All experiments are simulations; no radio transmission was made and no personal data were collected. Code and data: \url{https://github.com/chengmatt416/trcn}. The author used generative AI assistance in this work (see the Use of Generative AI section). Correspondence concerning this article should be addressed to Pinyen Cheng, Taoyuan, Taiwan.
+}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+Large disasters remove the two things a cellular network needs most: electrical power and backhaul. After the 3 April 2024 Hualien earthquake, Taiwan's National Communications Commission reported 172 affected base stations across the three major carriers, mostly because of interrupted power and transmission \parencite{cna2024}; damage to the Central Cross-Island Highway left the Tianxiang area without communication until the Ministry of Digital Affairs airlifted low-earth-orbit satellite terminals to the site three days later \parencite{moda2024}. National-scale Internet connectivity was largely preserved \parencite{isoc2024}, so the most acute gap was \emph{local}: the last mile between people, shelters, and responders.
+
+Satellite terminals and emergency vehicles restore backhaul at selected points, but they do not give each shelter a message path to the next shelter, nor each phone a path to its shelter. The research question behind TRCN is therefore narrow: \emph{can short, authenticated, asynchronous messages keep moving between phones, shelters, and regional coordinators while the cellular core is unavailable, using only devices and links that already exist or are cheap to pre-position?}
+
+This paper makes four contributions. (a) It states an explicit system invariant together with what TRCN does \emph{not} guarantee (see \nameref{sec:req}). (b) It specifies a layered protocol architecture with concrete wire formats sized for low-rate radios (see \nameref{sec:arch} through \nameref{sec:proto}). (c) It gives a threat register mapping fifteen threats to mitigations and current status, including route poisoning, which the STAR routing policy partially mitigates (see \nameref{sec:threat}). (d) It reports synthetic results from a discrete-event simulator, including a replication of the original seven-node benchmark, and a staged roadmap that is honest about cost and evidence gaps (see \nameref{sec:eval} through \nameref{sec:roadmap}).
+
+\section{Background and Related Work}
+
+\textbf{Delay-tolerant networking (DTN).} The DTN architecture introduced custody transfer and store-and-forward bundles for networks without contemporaneous end-to-end paths \parencite{fall2003}; the Bundle Protocol version~7 and its security extension are the current IETF standards \parencite{rfc9171,rfc9172}. TRCN borrows custody semantics but deliberately does \emph{not} claim BPv7 or BPSec compliance: its envelope is a compact laboratory format sized for sub-kilobit LoRa links. DTN routing ranges from replication (epidemic, spray-and-wait) to utility-based (PRoPHET, MaxProp) and contact-plan-based schemes \parencite{vahdat2000,spyropoulos2005,lindgren2003,burgess2006,fraire2021}.
+
+\textbf{Community mesh systems.} Meshtastic and Reticulum provide off-grid LoRa messaging stacks \parencite{meshtastic,reticulum}. Field work pairing a LoRa mobile ad-hoc network with a crisis smartphone application reports promising urban range and delivery ratios but also usability gaps for civilians \parencite{khamaisi2025}. Surveys of multihop ad hoc networks for disaster response document the routing and resilience challenges that arise when infrastructure is partially destroyed \parencite{reina2015}. TRCN treats these systems as benchmarks and interoperability candidates rather than layers to stack: running two routing layers on the same path wastes scarce airtime.
+
+\textbf{LoRa capacity.} LoRa trades rate for range; time-on-air grows exponentially with the spreading factor \parencite{semtech2013,augustin2016}, and single-sink deployments with static parameters scale poorly \parencite{bor2016,adelantado2017}. Any design that floods routing state over LoRa must therefore count control-plane airtime, which the original TRCN prototype did not.
+
+\section{Requirements and System Invariant}
+\label{sec:req}
+
+\textbf{Invariant.} TRCN transports short encrypted asynchronous messages when \emph{at least one spatial or temporal communication path exists}, without requiring a central identity lookup, routing oracle, or operator short-message service center during steady-state communication. This is a goal, not a guarantee: a total physical partition cannot be bridged instantly, and the user interface must show \emph{pending} or \emph{expired} rather than a false success.
+
+Table~\ref{tab:req} lists the derived requirements.
+
+\begin{table}[t]
+\caption{Requirements derived from the TRCN invariant}
+\label{tab:req}
+\small
+\begin{tabularx}{\linewidth}{@{}lY@{}}
+\toprule
+ID & Requirement \\
+\midrule
+R1 & No online dependency (identity, directory, routing, SMSC) in the data plane. \\
+R2 & Distress (SOS) must be possible without any credential; unauthenticated messages are never shown as official. \\
+R3 & End-to-end confidentiality and sender authenticity; relays never see plaintext or original credentials. \\
+R4 & Delivery is reported only on a recipient-signed receipt; custody $\neq$ delivery. \\
+R5 & Minimal metadata: no broadcast phone numbers or global number-to-peer map. \\
+R6 & Every control byte is airtime: routing overhead must be bounded and measured. \\
+R7 & Official notices are role- and region-scoped, signed, expiring, and replay-protected. \\
+R8 & No false success indication, ever; accessible fallback for people without phones or credentials. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Architecture}
+\label{sec:arch}
+
+TRCN is organized in seven layers (Table~\ref{tab:layers}). Phones reach a shelter over Wi-Fi Aware or Bluetooth Low Energy; shelters and regional gateways form a LoRa mesh on a shared channel; regions interconnect over a heterogeneous backbone (for example a point-to-point microwave link and a slower hill-top LoRa relay) whose physical medium is chosen only after legal and terrain evaluation.
+
+\begin{table*}[t]
+\caption{TRCN layers, duties, and state of the v3.2 prototype}
+\label{tab:layers}
+\small
+\begin{tabularx}{\textwidth}{@{}lYY@{}}
+\toprule
+Layer & Core duties & State \\
+\midrule
+User application & Text, SOS, contact sharing, notice user interface & Test strings only \\
+TIC identity & Offline issuer chain, holder binding, role and scope, status & Laboratory mock; not a wallet \\
+TME messaging & Immutable end-to-end envelope, E2EE, final receipt & Binary encoding; experimental AEAD \\
+TADP directory & Rotating pairwise mailboxes, local announcements & Mailbox derivation only \\
+TAR routing & Per-node next-hop selection, queues, custody, scheduling & STAR learned routing (companion paper) \\
+TDF transport & MTU-specific frames, CRC, reassembly, custody ACK & Binary frames; selective-repeat ACK in simulator \\
+PHY adapters & Wi-Fi Aware/BLE (phones), LoRa (shelters), backbone & Simulated links only \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\textbf{Why not SMS in the core?} Carrier SMS and IP-based messaging depend on the same core network and power that fail in a disaster. An operator gateway can be an optional bridge, but TRCN messages travel natively when the short-message service center and IP multimedia subsystem are absent. The phone interface may look like SMS without claiming to replace the operating system's messaging application.
+
+\section{Protocol Design}
+\label{sec:proto}
+
+\subsection{TMEv1 envelope}
+All integers are unsigned and big-endian (Table~\ref{tab:tme}). The fixed header is 48 bytes and the whole-envelope overhead before payload is 52 bytes including the CRC-32. Destination and immutable header fields are bound into the authenticated-encryption associated data and the sender signature, so a relay cannot alter them undetected; the CRC detects accidental corruption only.
+
+\begin{table}[t]
+\caption{TMEv1 envelope fields}
+\label{tab:tme}
+\small
+\begin{tabularx}{\linewidth}{@{}lrY@{}}
+\toprule
+Field & Bytes & Semantics \\
+\midrule
+Magic & 2 & ASCII \texttt{TR} \\
+Version & 1 & 1 \\
+Type & 1 & private, distress, notice, receipt, supply \\
+Req.\ priority & 1 & 0 (highest) to 3; not blindly trusted \\
+Flags & 1 & bit 0 = E2EE; unknown bits rejected \\
+Message ID & 16 & random, for de-duplication \\
+Dest.\ mailbox & 16 & opaque 128-bit, not a phone number \\
+Created & 4 & epoch seconds \\
+TTL & 4 & lifetime (s) \\
+Payload length & 2 & $\le$ 16 KiB \\
+Payload & var. & encrypted \\
+CRC-32 & 4 & accidental-error detection \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{TDFv1 fragmentation and custody}
+Each frame carries a 24-byte header: magic (2), version (1), flags (1), an 8-byte content tag derived from the assembled envelope, fragment index and count (2 + 2), total length (4), and CRC-32 (4). Receivers validate lengths before allocating memory, cap partial assemblies (20 KiB per envelope, 32 concurrent, 256 KiB total), expire incomplete assemblies after 120\,s, and reject conflicting duplicates. A relay emits a 30-byte custody acknowledgment (\texttt{AK}, message ID, 12-byte MAC) only after complete reassembly, checksum, TTL check, and queue admission. The simulator extends this with a fragment bitmap so that only missing fragments are retransmitted, the selective-repeat behavior planned for v3.3.
+
+\textbf{Custody is not delivery.} The originator records \emph{delivered} only when the intended recipient's separately encrypted and signed RECEIPT envelope arrives and its signer matches the saved contact key. Because the v3.2 prototype stores custody in RAM, a power cut can silently destroy a custodied distress message; durable, transactional storage before acknowledgment is the highest-priority safety fix (T11).
+
+\subsection{Addressing and identity}
+A device signing key authenticates messages and a separate encryption key receives them. Mailboxes are pairwise and rotate per epoch, $\text{mbox}=\text{KDF}(\text{secret},\text{epoch},\text{direction})$, so relays cannot link a user across contacts. Phone numbers are user-visible aliases only after verified private contact exchange; no global number-to-peer map is broadcast. A government digital-identity credential such as the Taiwan Digital Identity Wallet \parencite{twallet} is an optional proof source for verified properties, never a prerequisite for distress (R2), and it does not prove that a message is true.
+
+\subsection{Official notices}
+An authority key, itself certified by an issuer for a role and region, signs (region, issued, expiry, sequence, text). Offline verifiers check the chain, role, region, expiry, known revocation, and signature. Monotonic per-authority sequence numbers are required for replay protection. Demonstrations must label every notice 模擬公告 (\emph{simulated notice}) and use keys that cannot be mistaken for real issuer keys.
+
+\subsection{Routing: STAR}
+The TAR layer selects next hops with STAR, a stability-aware learned policy described and evaluated in the companion paper. Each node maintains discounted Beta posteriors over per-link frame success and availability, receives compact route advertisements that obey a loop-free feasibility condition with destination-authenticated sequence numbers \parencite{rfc8966,zapata2002}, and scores each neighbor by the predicted probability $\Psi$ that a message reaches its destination before it expires. Signed receipts, their absence, and overheard forwarding \parencite{marti2000} calibrate how far each neighbor's route claims can be trusted.
+
+\section{Threat Model}
+\label{sec:threat}
+
+\textbf{Assets:} physical safety, correctness of emergency messages, recipient confidentiality, location privacy, official-notice authority, channel availability, custody integrity, and fairness of service. \textbf{Trust boundaries:} the official issuer (offline root), user devices (may be stolen or compromised), phone relays (untrusted), shelter gateways (store traffic and can drop or falsify routing), regional gateways (critical availability, not identity authorities), the radio medium (open to interception, jamming, spoofing), and the simulator orchestrator (testing only; never a deployment dependency). Table~\ref{tab:threats} gives the register.
+
+\begin{table*}[t]
+\caption{Threat register. Status reflects the v3.2 prototype plus the STAR routing work; ``lab'' means tested only with mock keys in simulation.}
+\label{tab:threats}
+\small
+\begin{tabularx}{\textwidth}{@{}lp{3.6cm}YY@{}}
+\toprule
+ID & Threat & Required mitigation & Status \\
+\midrule
+T01 & Spoofed identity & Signature bound to public key; offline issuer verification for verified classes & Lab identity, mock issuer \\
+T02 & Fake government notice & Role/region credential; signed notice with expiry and sequence & Signature, role, scope, expiry tested; sequence replay cache open \\
+T03 & Forged custody ACK & Authenticated per-link ACK with replay counter & Lab HMAC; key provisioning insecure; no counter \\
+T04 & Message tampering & AEAD bound to immutable header & Tested (lab) \\
+T05 & Sybil flooding & Rate limits and quotas without excluding anonymous SOS & Priority caps only \\
+T06 & Jamming and collision & Multiple media, regional redundancy, queueing under partition & Collision-domain model; STAR routes around degraded links \\
+T07 & Privacy tracking & Rotating pairwise mailboxes, short-lived hints & Derivation exists; traffic analysis open \\
+T08 & Compromised phone key & Hardware-backed keys, re-key, revocation propagation & Open \\
+T09 & Stale revocation & Signed status snapshot with visible freshness & Lab mock only \\
+T10 & Route poisoning (blackhole) & Authenticated, bounded adverts; outcome-based trust & \textbf{Partial:} authenticated seqnos, Babel feasibility, receipt deadlines, watchdog (STAR) \\
+T11 & Custody lost on power cut & Durable encrypted queue, fsync before ACK & Open (RAM only) --- highest priority \\
+T12 & Congestion starving SOS & Auth-aware classes, protected SOS quota & Strict priority; STAR replicates SOS when $\Psi$ is low \\
+T13 & Phone-number directory leak & No broadcast hashes; private discovery & No lookup service exists \\
+T14 & Long-lived key compromise & Audited KEM/ratchet, rotation & No forward secrecy yet \\
+T15 & Unlawful RF interference & Legal bands, certification, permits, field tests & No RF used \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+The laboratory custody MAC derives keys from public node names so that runs are reproducible; anyone who knows the construction can forge acknowledgments. Deployment requires an authenticated peer handshake such as a vetted Noise pattern \parencite{perrin2018}, per-neighbor key expiry, replay counters, and persistent admission policy. Because a STAR blackhole is an \emph{insider} that holds valid link keys, link authentication alone does not stop route poisoning; outcome-based trust is needed in addition.
+
+\section{Safety and Humanitarian Constraints}
+\begin{enumerate}
+\item Never substitute an unverified research network for 119, 110, or official safety instructions.
+\item Label demonstration notices 模擬公告 and use non-production keys.
+\item Do not expose shelter occupant lists, precise distress locations, or bulk contact data to relays.
+\item Keep a human-accessible help path for people without compatible phones, battery, or credentials, and for people with disabilities.
+\item If a message cannot be delivered, show \emph{pending} or \emph{expired}; never a false success.
+\end{enumerate}
+
+\section{Synthetic Evaluation Summary}
+\label{sec:eval}
+
+\textbf{Caveat.} Every result below comes from simulation. Radios, keys, and movement are synthetic, and nothing here is an RF measurement or a capacity figure for Taiwan.
+
+\input{../star/tables/seven.tex}
+
+\textbf{Seven-node replication.} The original v3.2 benchmark queued 1--80 messages on a seven-node path whose only cross-region backbone returned after 80\,s. Our independent simulator, which replaces the bit-rate frame model with LoRa time-on-air and adds airtime-accounted control traffic, reproduces the qualitative behavior (Table~\ref{tab:seven}): every message waits for the backbone, delay grows with load, and the 80-message case saturates the LoRa hops within the 600\,s window. Absolute delays differ because the airtime models differ.
+
+\textbf{Two-region disaster network.} In a synthetic two-region network (37 nodes: 24 phones, 8 shelters, 2 gateways, 2 coordinators, 1 relay) with intermittent links, \STARmainPDR\ of messages reached their destination within the 900\,s lifetime under STAR, against \ETXmainPDR\ for a loop-free ETX distance-vector baseline and \PROmainPDR\ for PRoPHET, with all SOS messages delivered under STAR (\STARmainSOS). After a simulated aftershock that permanently removes the microwave backbone and 30\% of shelter LoRa links, STAR delivered \STARafterPDR\ against \ETXafterPDR\ and \PROafterPDR. Under heavy load the advantage disappears, and with compromised shelters, replication-based protocols remain more robust than any single-copy policy. The companion paper reports all metrics with confidence intervals.
+
+\section{Roadmap and Cost Structure}
+\label{sec:roadmap}
+
+\begin{table*}[t]
+\caption{Staged roadmap; each stage has an exit criterion that must be met before the next begins}
+\label{tab:roadmap}
+\small
+\begin{tabularx}{\textwidth}{@{}lYYY@{}}
+\toprule
+Stage & Deliverable & Exit criterion & Outside dependency \\
+\midrule
+v3.2 & Binary frames, store-and-forward, lab crypto, role proof, ACK, toy collision model & Automated tests and benchmark with documented limits & None \\
+v3.3 & Durable encrypted custody, crash recovery, selective fragment ACK, replay counters & Power-loss fault injection yields no falsely acknowledged packet & Local disk tests \\
+v3.4 & Private mailbox adverts, learned routing (STAR), mobility & Node-local state only; control overhead accounted & None (simulator) \\
+v3.5 & LoRa time-on-air PHY, adversarial topologies, link budgets & Capacity vs.\ goodput and SOS latency curves & Public standards, map data \\
+v3.6 & Wallet verifier sandbox, credential applicability & Sandbox credentials verified; no claim of authorization & Sandbox access \\
+v4.0 & Android and iOS adapters, permission matrix & Cross-phone messaging; background limits documented & Compatible devices \\
+Pilot & Legal RF equipment, authorized sites, governance & Monitored reliability, permits, consent, guidance & Public partners, budget, review \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+The current hardware budget is NT\$0: everything runs in a Python simulator with open-source dependencies. No nationwide budget can be derived from radio-board prices. A credible estimate must separately cover shelter endpoints and backup power; regional links and legally permitted bandwidth; elevated repeaters, site rental, towers, and lightning protection; commissioning, legal fees, and equipment approval; monitoring, maintenance, spares, and batteries; security testing and credential governance; and exercises, accessible user experience, and support. Each of these depends on a verified shelter inventory, line-of-sight surveys, propagation assumptions, spectrum rules such as the low-power device regulation LP0002 \parencite{ncclp0002}, expected traffic, and availability targets (Table~\ref{tab:roadmap}).
+
+\section{Limitations and Research Agenda}
+
+The evidence still missing is primarily \emph{human and physical}, not algorithmic: a needs assessment with affected school and community populations; interviews on current shelter-to-shelter communication gaps; baselines against Meshtastic and Reticulum on identical hardware; measured throughput, latency, and queueing under quantified workloads on legal radios; a credible public-sector integration plan covering spectrum, security, and procurement; and accessible fallbacks for people without compatible phones. On the technical side, durable custody (T11), authenticated link keys (T03), forward secrecy (T14), and traffic-analysis resistance (T07) remain open.
+
+\section{Conclusion}
+
+TRCN specifies how short, authenticated messages can keep moving between phones, shelters, and coordinators when the cellular core is gone, while stating plainly what it cannot guarantee. The design favors explicit custody, recipient-signed receipts, minimal metadata, and accounted airtime; its learned routing layer improves delivery and latency in synthetic disaster scenarios. Before anyone relies on it, the architecture needs durable custody, real key management, legal radio trials, and evidence gathered with the communities it is meant to serve.
+
+\section*{Use of Generative AI}
+This research was conducted with substantial assistance from generative artificial intelligence. The initial TRCN design notes summarized here (protocol specification, threat model, benchmark notes, and roadmap) were produced with ChatGPT (OpenAI). Claude (Anthropic; model Claude Opus 5.5) was then used, under the author's direction, to search the literature and check each reference against publisher, standards-body, or government records; to implement and run the simulator whose results are summarized in this paper; and to draft and edit the manuscript. The author, Pinyen Cheng, defined the research goal, reviewed the outputs, and takes full responsibility for the content of this article.
+
+\printbibliography
+
+\end{document}

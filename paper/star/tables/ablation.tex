@@ -1,0 +1,23 @@
+\begin{table*}[t]
+\centering
+\caption{Ablation of STAR components (20 evaluation seeds, mean $\pm$ 95\% CI). PDR = packet delivery ratio.}
+\label{tab:ablation}
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llrrrrrr}
+\toprule
+ & & \multicolumn{3}{c}{Baseline scenario} & \multicolumn{3}{c}{Aftershock scenario} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}
+Variant & Removed component & PDR (\%) & SOS (\%) & Med.\ lat.\ (s) & PDR (\%) & SOS (\%) & Med.\ lat.\ (s) \\
+\midrule
+\textbf{STAR} & Full model & 97.7 $\pm$ 0.9 & 100.0 $\pm$ 0.0 & 74 $\pm$ 11 & 92.8 $\pm$ 2.3 & 95.1 $\pm$ 3.6 & 97 $\pm$ 18 \\
+STAR-noTS & no Thompson sampling (posterior means) & 97.8 $\pm$ 0.7 & 99.2 $\pm$ 1.1 & 80 $\pm$ 11 & 92.5 $\pm$ 2.6 & 97.9 $\pm$ 1.7 & 108 $\pm$ 23 \\
+STAR-noRisk & no risk-averse LCB for P0/P1 & 97.6 $\pm$ 0.9 & 100.0 $\pm$ 0.0 & 74 $\pm$ 10 & 92.4 $\pm$ 2.1 & 95.9 $\pm$ 3.6 & 99 $\pm$ 18 \\
+STAR-noStab & no stability score ($\Psi$ $\to$ min.\ delay) & 95.4 $\pm$ 1.5 & 99.2 $\pm$ 1.1 & 63 $\pm$ 10 & 88.6 $\pm$ 2.9 & 97.2 $\pm$ 2.8 & 78 $\pm$ 13 \\
+STAR-noE2E & no end-to-end learning or trust & 98.2 $\pm$ 1.0 & 99.5 $\pm$ 1.0 & 64 $\pm$ 11 & 92.5 $\pm$ 2.6 & 98.7 $\pm$ 1.9 & 85 $\pm$ 19 \\
+STAR-noWatch & no watchdog overhearing & 98.3 $\pm$ 0.7 & 100.0 $\pm$ 0.0 & 65 $\pm$ 10 & 92.8 $\pm$ 2.6 & 97.9 $\pm$ 2.2 & 93 $\pm$ 18 \\
+STAR-noSpray & no SOS replication & 98.1 $\pm$ 0.8 & 100.0 $\pm$ 0.0 & 72 $\pm$ 11 & 92.5 $\pm$ 2.1 & 95.4 $\pm$ 3.6 & 102 $\pm$ 20 \\
+STAR-noDecay & no posterior discounting & 98.3 $\pm$ 0.6 & 100.0 $\pm$ 0.0 & 69 $\pm$ 9 & 92.5 $\pm$ 2.5 & 98.8 $\pm$ 1.8 & 93 $\pm$ 15 \\
+\bottomrule
+\end{tabular}}
+\end{table*}

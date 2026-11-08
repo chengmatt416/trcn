@@ -1,0 +1,45 @@
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\footnotesize,
+  box/.style={draw=black!70, rounded corners=2pt, align=center, inner sep=4pt, fill=#1},
+  box/.default=white,
+  obs/.style={box=blue!6, text width=3.5cm, minimum height=1.0cm},
+  est/.style={box=orange!8, text width=3.7cm, minimum height=1.0cm},
+  dec/.style={box=green!8, text width=3.5cm, minimum height=1.0cm},
+  arr/.style={-{Latex[length=2mm]}, thick, black!70},
+  fb/.style={-{Latex[length=2mm]}, thick, dashed, black!55}
+]
+% column 1: observations
+\node[obs] (ack)  at (0, 3.6) {Fragment-bitmap custody ACKs (every round, every link)};
+\node[obs] (bcn)  at (0, 2.1) {Beacons and ACK piggyback $(\mu_j,\sigma^2_j,\pi_j,\text{nh},\text{seq})$};
+\node[obs] (rcp)  at (0, 0.6) {Signed end-to-end receipts, or their absence by the deadline};
+\node[obs] (wd)   at (0,-0.9) {Watchdog: overheard TDF content tags};
+% column 2: estimators
+\node[est] (lp)   at (5.2, 3.6) {Link posteriors\\$f_\ell,u_\ell\sim\mathrm{Beta}$; outage $\hat D_\ell$};
+\node[est] (ds)   at (5.2, 2.1) {Downstream table\\Babel feasibility, authenticated seqno};
+\node[est] (e2e)  at (5.2, 0.6) {Outcome model\\discounted $(s,n)_{d,j}$};
+\node[est] (tr)   at (5.2,-0.9) {Trust = calibration\\$\tau_j=\min\big(1,\frac{R_j+2}{C_j+2}\big)$};
+% column 3: score
+\node[box=yellow!10, text width=4.0cm, minimum height=5.2cm] (psi) at (10.3, 1.35)
+  {\textbf{Stability score}\\[6pt]$\displaystyle\Psi_{ij}=\hat\pi_{ij}\,\Phi\!\left(\frac{T-\mu_{ij}}{\sigma_{ij}}\right)$\\[8pt]$\mu_{ij}=h_{ij}+W_j+\mu_j(d)$\\[2pt]$\sigma^2_{ij}=v_{ij}+\sigma^2_j(d)$\\[2pt]$\hat\pi_{ij}$ from claim, trust, outcomes};
+% column 4: decision
+\node[dec] (pol) at (15.2, 2.3) {\textbf{Decision policy}\\P0/P1: lower bound, no exploration\\P2/P3: Thompson sampling\\$\varepsilon$-lexicographic choice};
+\node[dec] (act) at (15.2, 0.2) {Forward, hold, or replicate SOS ($L\le 3$)};
+% arrows
+\draw[arr] (ack) -- (lp);
+\draw[arr] (bcn) -- (ds);
+\draw[arr] (rcp) -- (e2e);
+\draw[arr] (wd) -- (tr);
+\draw[arr] ([yshift=-3mm]bcn.east) -- ++(0.45,0) |- ([yshift=-3mm]lp.west);
+\draw[arr] ([yshift=-3mm]rcp.east) -- ++(0.45,0) |- ([yshift=3mm]tr.west);
+\foreach \n in {lp,ds,e2e,tr} { \draw[arr] (\n.east) -- (\n.east -| psi.west); }
+\draw[arr] (psi.east |- pol.west) -- (pol.west);
+\draw[arr] (pol) -- (act);
+\draw[fb] (act.south) -- ++(0,-1.9) -| (wd.south);
+\node[font=\footnotesize\itshape, text=black!60, fill=white] at (7.6,-2.15) {outcomes of every decision become new observations (learning loop)};
+\end{tikzpicture}}
+\caption{The STAR model at one node. Four local evidence streams feed four estimators; their outputs combine into the stability score $\Psi$, which a priority-aware policy turns into a forwarding decision. The outcome of every decision is observed again, closing the learning loop. No component requires global topology knowledge.}
+\label{fig:model}
+\end{figure*}

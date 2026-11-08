@@ -1,0 +1,22 @@
+\begin{algorithm}[t]
+\caption{STAR next-hop decision at node $i$ for a message copy $m$}
+\label{alg:decide}
+\begin{algorithmic}[1]
+\Require copy $m$ (destination $d$, priority $p$, expiry $t_e$, path memory $\mathcal{P}$, tokens $L_m$)
+\State $T \gets t_e - t_{\text{now}}$; \textbf{if} $T\le 0$ \textbf{then return} \textsc{Drop}
+\State mode $\gets$ \textsc{Sample} if $p\ge 2$ else \textsc{LowerBound}
+\ForAll{neighbours $j\notin\mathcal{P}$ with a feasible, authenticated route to $d$ and $\tau_j\ge\tau_{\min}$}
+  \State draw or bound $f_\ell$, $u_\ell$ according to mode; compute $(h_{ij},v_{ij})$ \Comment{Eq.~\ref{eq:hop}}
+  \State $\mu_{ij},\sigma^2_{ij},\hat\pi_{ij}$ from downstream table and outcome model \Comment{Eqs.~\ref{eq:down}--\ref{eq:pi}}
+  \State $\Psi_{ij}\gets\hat\pi_{ij}\,\Phi\big((T-\mu_{ij})/\sigma_{ij}\big)$
+\EndFor
+\State $\mathcal{C}\gets\{j:\Psi_{ij}\ge\max_k\Psi_{ik}-\varepsilon_p\}$; \ $j^\star\gets\arg\min_{j\in\mathcal{C}}\mu_{ij}$
+\If{$\tilde u_{\ell(j^\star)}<0.3$ and no alternative within $\Psi_{ij^\star}/2$ is believed up}
+  \State \Return \textsc{Hold} \Comment{store-carry-forward}
+\EndIf
+\If{$p=0$, $i$ is the source and $\Psi_{ij^\star}<\Psi^\ast$}
+  \State $L_m\gets\min\!\big(L_{\max},\lceil\ln(1-\Psi^\ast)/\ln(1-\Psi_{ij^\star})\rceil\big)$ \Comment{SOS replication}
+\EndIf
+\State \Return \textsc{Forward}$(j^\star,\ \max(1,\lfloor L_m/2\rfloor))$
+\end{algorithmic}
+\end{algorithm}

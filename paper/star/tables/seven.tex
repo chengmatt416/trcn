@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\caption{Seven-node path replication. v3.2 = the original TRCN benchmark (single run, bit-rate airtime model); other columns are this simulator (LoRa time-on-air, 10 seeds, means). Deliveries counted within 600\,s of submission.}
+\label{tab:seven}
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{rrrrrrr}
+\toprule
+ & \multicolumn{2}{c}{v3.2 benchmark} & \multicolumn{2}{c}{Static (this work)} & \multicolumn{2}{c}{STAR} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Msgs & Deliv. & Delay (s) & Deliv. & Delay (s) & Deliv. & Delay (s) \\
+\midrule
+1 & 1 & 84.1 & 1.0 & 105.2 & 1.0 & 100.8 \\
+5 & 5 & 97.9 & 5.0 & 94.8 & 5.0 & 122.7 \\
+10 & 10 & 114.9 & 10.0 & 107.1 & 10.0 & 147.2 \\
+20 & 20 & 149.7 & 20.0 & 137.4 & 20.0 & 194.8 \\
+40 & 40 & 222.5 & 40.0 & 183.0 & 40.0 & 279.8 \\
+80 & 73 & 339.8 & 64.0 & 269.9 & 55.9 & 337.5 \\
+\bottomrule
+\end{tabular}}
+\end{table}
